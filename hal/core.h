@@ -22,7 +22,11 @@
 #define SYST_CVR  (*(volatile uint32_t *)0xE000E018) // current value
 
 /* Frequency for f103 */
-#define SYSTEM_CLOCK 8000000  // 8 MHz
+#define SYSTEM_CLOCK 72000000  // 72 MHz
+
+#define RCC_CR     (*(volatile uint32_t *)0x40021000)
+#define RCC_CFGR   (*(volatile uint32_t *)0x40021004)
+#define FLASH_ACR  (*(volatile uint32_t *)0x40022000)
 
 /* Peripherials relevant addresses */
 #define RCC_APB2ENR  (*(volatile uint32_t *)0x40021018)

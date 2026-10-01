@@ -35,11 +35,14 @@ static void uart_print(const char *msg);
 static void uart_print_uint(uint32_t n);
 static void producer(void);
 static void consumer(void);
+static void clock_init(void);
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global functions                                                                   */
 void main(void)
 {
+    clock_init();
+
     RCC_APB2ENR |= (1 << 2);
     
     uart_init();
@@ -73,7 +76,7 @@ static void uart_init(void)
     GPIOA_CRL &= ~(0xF << 8);
     GPIOA_CRL |=  (0xA << 8);
 
-    USART2_BRR = 69;  // approximation, 8MHz / 115200 ≈ 69.4 → zaokrąglamy w dół
+    USART2_BRR = 313;  // approximation, 36MHz / 115200 ≈ 313.0
 
     USART2_CR1 |= (1 << 13) | (1 << 3);
 }
@@ -122,7 +125,7 @@ static void producer(void)
         uart_print_uint(shared_counter);
         uart_print("\r\n");
 
-        task_delay_until(&last_wake, 1000);
+        task_delay_until(&last_wake, 500);
     }
 }
 
@@ -137,4 +140,25 @@ static void consumer(void)
         uart_print_uint(shared_counter);
         uart_print("\r\n");
     }
+}
+
+static void clock_init(void)
+{
+    FLASH_ACR |= (2 << 0);  // 2 wait states for 48MHz < SYSCLK <= 72MHz
+
+    RCC_CR |= (1 << 16);           // HSEON
+    while (!(RCC_CR & (1 << 17))); // wait for HSERDY
+
+    RCC_CFGR |= (1 << 16);   // PLLSRC = HSE
+    RCC_CFGR |= (7 << 18);   // PLLMUL = x9 (value 7 in 4-bits field = x9)
+
+    RCC_CFGR |= (4 << 8);    // APB1 prescaler = /2 (bits PPRE1)
+    // APB2 zostaje /1 (domyślnie)
+
+    RCC_CR |= (1 << 24);           // PLLON
+    while (!(RCC_CR & (1 << 25))); // wait for PLLRDY
+
+    RCC_CFGR &= ~(3 << 0);
+    RCC_CFGR |= (2 << 0);          // SW = PLL
+    while (((RCC_CFGR >> 2) & 3) != 2); // wait for SWS to show PLL as active source
 }
