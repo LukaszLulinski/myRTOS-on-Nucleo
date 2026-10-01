@@ -9,9 +9,16 @@ LDFLAGS = -T linker.ld -nostdlib -Wl,-Map=out/myRTOS.map
 
 TARGET  = out/myRTOS.elf
 
-SRCS    = src/main.c 		\
-	      src/startup.c 	\
-		  kernel/systick.c
+SRCS    = src/main.c 		    \
+	      src/startup.c 	    \
+		  hal/systick.c		    \
+		  kernel/task.c 		\
+          kernel/scheduler.c    \
+          kernel/context.s	    \
+          kernel/mutex.c		\
+          kernel/timer.c 		\
+          kernel/semaphore.c    \
+          kernel/queue.c
 
 all: $(TARGET)
 

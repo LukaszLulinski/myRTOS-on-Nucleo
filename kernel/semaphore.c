@@ -1,16 +1,16 @@
 /*------------------------------------------------------------------------------------*/
 /*!
- * \file  main.c 
- * \brief main component
+ * \file  semaphore.c 
+ * \brief Handling semaphores
  */
 /*------------------------------------------------------------------------------------*/
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Includes                                                                           */
-#include "core.h"
-#include "systick.h"
+#include <stddef.h>
+#include "semaphore.h"
 #include "scheduler.h"
-#include "queue.h"
+#include "core.h"
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Defines                                                                            */
@@ -23,118 +23,57 @@
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static global variables                                                            */
-static queue_t shared_queue;
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global variables                                                                   */
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions declarations                                                      */
-static void uart_init(void);
-static void uart_print(const char *msg);
-static void uart_print_uint(uint32_t n);
-static void producer(void);
-static void consumer(void);
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global functions                                                                   */
-void main(void)
+void semaphore_init(semaphore_t* semaphore, uint32_t initial_count)
 {
-    RCC_APB2ENR |= (1 << 2);
-    
-    uart_init();
-    GPIOA_CRL   &= ~(0xF << 20);
-    GPIOA_CRL   |=  (0x2 << 20);
+    semaphore->count = initial_count;
+    semaphore->blocked_list = NULL;
+}
 
-    task_create(producer, 1u, 128u);
-    task_create(consumer, 1u, 128u);
-
-    queue_init(&shared_queue, sizeof(uint32_t));
-
-    uart_print("Program started\n");
-
-    systick_init(1000);  // Initialize SysTick with 1 kHz
-
-    /*! NOTE: Must be called after creating at least one task */
-    scheduler_init();
-
-    while (1)
+void semaphore_wait(semaphore_t* semaphore)
+{
+    if (semaphore->count > 0)
     {
-        // do nothing, everything is handled by tasks and interrupts
+        semaphore->count--;
     }
+    else
+    {
+        /* Block the current task and add it to the blocked list */
+        current_task->next = semaphore->blocked_list;
+        semaphore->blocked_list = current_task;
+        current_task->state = BLOCKED;
+
+        /* Trigger PendSV interrupt */
+        ICSR |= (1 << 28);
+    }
+}
+
+void semaphore_signal(semaphore_t* semaphore)
+{
+    if (semaphore->blocked_list)
+    {
+        /* Unblock the first task in the blocked list */
+        task_control_block_t* task_to_unblock = semaphore->blocked_list;
+        semaphore->blocked_list = task_to_unblock->next;
+        task_to_unblock->state = READY;
+        task_to_unblock->next = NULL;
+
+        /* Trigger PendSV interrupt */
+        ICSR |= (1 << 28);
+    }
+    else
+    {
+        semaphore->count++;
+    }    
 }
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions definitions                                                       */
-static void uart_init(void)
-{
-    RCC_APB1ENR |= (1 << 17);  // USART2EN
-
-    GPIOA_CRL &= ~(0xF << 8);
-    GPIOA_CRL |=  (0xA << 8);
-
-    USART2_BRR = 69;  // approximation, 8MHz / 115200 ≈ 69.4 → zaokrąglamy w dół
-
-    USART2_CR1 |= (1 << 13) | (1 << 3);
-}
-
-static void uart_print(const char *msg)
-{
-    while (*msg)
-    {
-        while (!(USART2_SR & (1 << 7)));
-        USART2_DR = *msg++;
-    }
-}
-
-static void uart_print_uint(uint32_t n)
-{
-    char buf[12];
-    int i = 0;
-
-    if (n == 0) { uart_print("0"); return; }
-
-    while (n > 0)
-    {
-        buf[i++] = '0' + (n % 10);
-        n /= 10;
-    }
-
-    /* flip */
-    for (int j = i - 1; j >= 0; j--)
-    {
-        while (!(USART2_SR & (1 << 7)));
-        USART2_DR = buf[j];
-    }
-}
-
-
-static void producer(void)
-{
-    uint32_t last_wake = systick_get_tick();
-    uint32_t shared_counter = 0;
-    while (1)
-    {
-        shared_counter++;
-        queue_push(&shared_queue, &shared_counter);
-
-        uart_print("produced: ");
-        uart_print_uint(shared_counter);
-        uart_print("\r\n");
-
-        task_delay_until(&last_wake, 1000);
-    }
-}
-
-static void consumer(void)
-{
-    uint32_t shared_counter = 0;
-    while (1)
-    {
-        queue_pop(&shared_queue, &shared_counter);
-        
-        uart_print("consumed: ");
-        uart_print_uint(shared_counter);
-        uart_print("\r\n");
-    }
-}

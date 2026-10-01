@@ -1,16 +1,14 @@
 /*------------------------------------------------------------------------------------*/
 /*!
- * \file  systick.c 
- * \brief Handling SysTick
+ * \file  queue.c 
+ * \brief Handling queues
  */
 /*------------------------------------------------------------------------------------*/
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Includes                                                                           */
-#include "systick.h"
-#include "core.h"
-// #include "timer.h"
-// #include "task.h"
+#include <stddef.h>
+#include "queue.h"
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Defines                                                                            */
@@ -23,40 +21,61 @@
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static global variables                                                            */
-static volatile uint32_t tick_count;
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global variables                                                                   */
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions declarations                                                      */
+void* memcpy(void* dest, const void* src, uint32_t n);
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global functions                                                                   */
-void systick_init(uint32_t ticks_per_second)
+void queue_init(queue_t* q, uint32_t item_size)
 {
-    tick_count = 0;
+    if ((item_size == 0) || (item_size > MAX_ITEM_SIZE))
+    {
+        item_size = MAX_ITEM_SIZE;
+    }
 
-    SYST_RVR = (SYSTEM_CLOCK / ticks_per_second) - 1;
-    SYST_CVR = 0;
-    /* bit 2 = clksource (core clock), bit 1 = tickint (interrupt), bit 0 = enable */
-    SYST_CSR = 0x7;
+    q->item_size = item_size;
+    q->head = 0;
+    q->tail = 0;
+    semaphore_init(&q->free_slots, MAX_QUEUE_SIZE);
+    semaphore_init(&q->used_slots, 0u);
 }
 
-uint32_t systick_get_tick(void)
+void queue_push(queue_t* q, const void* item)
 {
-    return tick_count;
+    semaphore_wait(&q->free_slots);
+    
+    memcpy(&q->data[q->tail * q->item_size], item, q->item_size);
+    q->tail = (q->tail + 1) % MAX_QUEUE_SIZE;
+    
+    semaphore_signal(&q->used_slots);
 }
 
-/* Interrupt handler */
-void systick_handler(void)
+void queue_pop(queue_t* q, void* item)
 {
-    tick_count++;
-    // timer_update();
-    // task_delay_update();
-    /* Trigger PendSV interrupt */
-    // ICSR |= (1 << 28);
+    semaphore_wait(&q->used_slots);
+    
+    memcpy(item, &q->data[q->head * q->item_size], q->item_size);
+    q->head = (q->head + 1) % MAX_QUEUE_SIZE;
+    
+    semaphore_signal(&q->free_slots);
 }
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions definitions                                                       */
+void* memcpy(void* dest, const void* src, uint32_t n)
+{
+    uint8_t* d = (uint8_t*)dest;
+    const uint8_t* s = (const uint8_t*)src;
+    
+    for (uint32_t i = 0; i < n; i++)
+    {
+        d[i] = s[i];
+    }
+    
+    return dest;
+}

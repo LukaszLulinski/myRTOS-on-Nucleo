@@ -1,16 +1,14 @@
 /*------------------------------------------------------------------------------------*/
 /*!
- * \file  main.c 
- * \brief main component
+ * \file  timer.c 
+ * \brief Handling timers
  */
 /*------------------------------------------------------------------------------------*/
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Includes                                                                           */
-#include "core.h"
-#include "systick.h"
-#include "scheduler.h"
-#include "queue.h"
+#include <stddef.h>
+#include "timer.h"
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Defines                                                                            */
@@ -23,118 +21,79 @@
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static global variables                                                            */
-static queue_t shared_queue;
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global variables                                                                   */
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions declarations                                                      */
-static void uart_init(void);
-static void uart_print(const char *msg);
-static void uart_print_uint(uint32_t n);
-static void producer(void);
-static void consumer(void);
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global functions                                                                   */
-void main(void)
+void timer_init(void)
 {
-    RCC_APB2ENR |= (1 << 2);
-    
-    uart_init();
-    GPIOA_CRL   &= ~(0xF << 20);
-    GPIOA_CRL   |=  (0x2 << 20);
-
-    task_create(producer, 1u, 128u);
-    task_create(consumer, 1u, 128u);
-
-    queue_init(&shared_queue, sizeof(uint32_t));
-
-    uart_print("Program started\n");
-
-    systick_init(1000);  // Initialize SysTick with 1 kHz
-
-    /*! NOTE: Must be called after creating at least one task */
-    scheduler_init();
-
-    while (1)
+    for (uint32_t timer_id = 0; timer_id < MAX_TIMERS; timer_id++)
     {
-        // do nothing, everything is handled by tasks and interrupts
+        timers_pool[timer_id].active = false;
+    }
+}
+
+timer_t* timer_start(uint32_t delay_ticks, bool cyclic, timer_func_t func)
+{
+    for (uint32_t timer_id = 0; timer_id < MAX_TIMERS; timer_id++)
+    {
+        timer_t* timer = &timers_pool[timer_id];
+        
+        if (timer->active == false)
+        {
+            timer->expire_tick = delay_ticks;
+            timer->interval_ticks = delay_ticks;
+            timer->func = func;
+            timer->cyclic = cyclic;
+            timer->active = true;
+            return timer;
+        }
+    }
+
+    return NULL;
+}
+
+void timer_stop(timer_t* timer)
+{
+    timer->active = false;
+}
+
+void timer_update(void)
+{
+    for (uint32_t timer_id = 0; timer_id < MAX_TIMERS; timer_id++)
+    {
+        timer_t* timer = &timers_pool[timer_id];
+        
+        if (timer->active)
+        {
+            if (timer->expire_tick > 0)
+            {
+                timer->expire_tick--;
+            }
+            else
+            {
+                if (timer->func)
+                {
+                    timer->func();
+                }
+
+                if (timer->cyclic)
+                {
+                    timer->expire_tick = timer->interval_ticks;
+                }
+                else
+                {
+                    timer->active = false;
+                }
+            }
+        }
     }
 }
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions definitions                                                       */
-static void uart_init(void)
-{
-    RCC_APB1ENR |= (1 << 17);  // USART2EN
-
-    GPIOA_CRL &= ~(0xF << 8);
-    GPIOA_CRL |=  (0xA << 8);
-
-    USART2_BRR = 69;  // approximation, 8MHz / 115200 ≈ 69.4 → zaokrąglamy w dół
-
-    USART2_CR1 |= (1 << 13) | (1 << 3);
-}
-
-static void uart_print(const char *msg)
-{
-    while (*msg)
-    {
-        while (!(USART2_SR & (1 << 7)));
-        USART2_DR = *msg++;
-    }
-}
-
-static void uart_print_uint(uint32_t n)
-{
-    char buf[12];
-    int i = 0;
-
-    if (n == 0) { uart_print("0"); return; }
-
-    while (n > 0)
-    {
-        buf[i++] = '0' + (n % 10);
-        n /= 10;
-    }
-
-    /* flip */
-    for (int j = i - 1; j >= 0; j--)
-    {
-        while (!(USART2_SR & (1 << 7)));
-        USART2_DR = buf[j];
-    }
-}
-
-
-static void producer(void)
-{
-    uint32_t last_wake = systick_get_tick();
-    uint32_t shared_counter = 0;
-    while (1)
-    {
-        shared_counter++;
-        queue_push(&shared_queue, &shared_counter);
-
-        uart_print("produced: ");
-        uart_print_uint(shared_counter);
-        uart_print("\r\n");
-
-        task_delay_until(&last_wake, 1000);
-    }
-}
-
-static void consumer(void)
-{
-    uint32_t shared_counter = 0;
-    while (1)
-    {
-        queue_pop(&shared_queue, &shared_counter);
-        
-        uart_print("consumed: ");
-        uart_print_uint(shared_counter);
-        uart_print("\r\n");
-    }
-}
