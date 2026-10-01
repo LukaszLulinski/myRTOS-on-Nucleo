@@ -1,15 +1,16 @@
 /*------------------------------------------------------------------------------------*/
 /*!
- * \file  main.c 
- * \brief main component
+ * \file  systick.c 
+ * \brief Handling SysTick
  */
 /*------------------------------------------------------------------------------------*/
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Includes                                                                           */
-#include <stdint.h>
-#include "core.h"
 #include "systick.h"
+#include "core.h"
+// #include "timer.h"
+// #include "task.h"
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Defines                                                                            */
@@ -22,60 +23,40 @@
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static global variables                                                            */
+static volatile uint32_t tick_count;
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global variables                                                                   */
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions declarations                                                      */
-static void uart_init(void);
-static void uart_print(const char *msg);
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Global functions                                                                   */
-void main(void)
+void systick_init(uint32_t ticks_per_second)
 {
-    RCC_APB2ENR |= (1 << 2);
-    
-    uart_init();
-    GPIOA_CRL   &= ~(0xF << 20);
-    GPIOA_CRL   |=  (0x2 << 20);
+    tick_count = 0;
 
-    systick_init(1000);  // Initialize SysTick with 1 kHz
+    SYST_RVR = (SYSTEM_CLOCK / ticks_per_second) - 1;
+    SYST_CVR = 0;
+    /* bit 2 = clksource (core clock), bit 1 = tickint (interrupt), bit 0 = enable */
+    SYST_CSR = 0x7;
+}
 
-    uint32_t last_tick = systick_get_tick();
-    while (1)
-    {
-        uint32_t now = systick_get_tick();
-        if (now - last_tick >= 100)  // Toggle every 1 second
-        {
-            uart_print("dupa\r\n");
+uint32_t systick_get_tick(void)
+{
+    return tick_count;
+}
 
-            GPIOA_ODR ^= (1 << 5);
-            last_tick = now;
-        }
-    }
+/* Interrupt handler */
+void systick_handler(void)
+{
+    tick_count++;
+    // timer_update();
+    // task_delay_update();
+    /* Trigger PendSV interrupt */
+    // ICSR |= (1 << 28);
 }
 
 /*————————————————————————————————————————————————————————————————————————————————————*/
 /* Static functions definitions                                                       */
-static void uart_init(void)
-{
-    RCC_APB1ENR |= (1 << 17);  // USART2EN
-
-    GPIOA_CRL &= ~(0xF << 8);
-    GPIOA_CRL |=  (0xA << 8);
-
-    USART2_BRR = 69;  // przybliżenie, 8MHz / 115200 ≈ 69.4 → zaokrąglamy w dół
-
-    USART2_CR1 |= (1 << 13) | (1 << 3);
-}
-
-static void uart_print(const char *msg)
-{
-    while (*msg)
-    {
-        while (!(USART2_SR & (1 << 7)));
-        USART2_DR = *msg++;
-    }
-}

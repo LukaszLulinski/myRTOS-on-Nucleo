@@ -10,6 +10,7 @@
 #define STACK_TOP 0x20005000
 
 extern void main(void);
+extern void systick_handler(void);
 
 extern uint32_t _sdata, _edata, _sidata;
 extern uint32_t _sbss, _ebss;
@@ -53,5 +54,5 @@ void (*vectors[])(void) =
     default_handler,            // 12 - DebugMon
     0,                          // 13 - reserved
     default_handler,            // 14 - PendSV
-    default_handler,            // 15 - SysTick
+    systick_handler,            // 15 - SysTick
 };
